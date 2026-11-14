@@ -5,6 +5,7 @@ Tasks, a daily planner and calendar, reminders, notes (including voice notes), v
 
 **Full stack:** HTML/CSS/JavaScript frontend · **FastAPI** (Python) backend · **PostgreSQL** · **JWT** login · **Gemini Live** real-time voice over WebSockets · **Docker** · **pytest**
 
+ 🔗 **Live demo:** https://dayflow-xxxx.onrender.com
 ---
 
 ## ✨ Features
