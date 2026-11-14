@@ -1,146 +1,173 @@
-# DayFlow with free real-time voice calls (Gemini Live)
+# DayFlow 🌸
 
-This is your DayFlow app plus **Call Flo**: a real-time voice call with an AI. It runs on Google's **Gemini Live API**, whose free tier needs no credit card.
+**A personal productivity app with an AI assistant you can talk to.**
+Tasks, a daily planner and calendar, reminders, notes (including voice notes), vision boards, and **Flo**, an assistant you can chat with or call in real time.
 
-- It listens all the time while the call is open.
-- You can interrupt it just by talking, and it stops and listens.
-- It answers in a natural voice.
-- It knows your tasks, calendar, reminders, routine and birthdays, and can add or change them while you talk.
-
-## How it works
-
-```
-Your browser  ⇄  your DayFlow server (FastAPI)  ⇄  Google Gemini Live
-   mic audio (16 kHz)  ──────────▶          ──────────▶
-   Flo's voice (24 kHz) ◀──────────          ◀──────────
-```
-
-- Your **Gemini API key stays on your server**. The browser never sees it.
-- Audio streams continuously both ways over WebSockets. Gemini decides when you've finished speaking and stops talking the moment you interrupt.
-
-## What's in the folder
-
-| File | What it is |
-|---|---|
-| `server/main.py` | The small FastAPI server. It serves DayFlow and relays the live call to Gemini. |
-| `server/requirements.txt` | The Python packages the server needs. |
-| `static/index.html` | The whole DayFlow app, including the call screen. |
-| `.env.example` | A template for your settings. You copy it to `.env`. |
+**Full stack:** HTML/CSS/JavaScript frontend · **FastAPI** (Python) backend · **PostgreSQL** · **JWT** login · **Gemini Live** real-time voice over WebSockets · **Docker** · **pytest**
 
 ---
 
-## Part 1: Run it on your computer (Windows + VS Code)
+## ✨ Features
 
-### Step 1. Open the folder in VS Code
-**File › Open Folder…** and pick the `dayflow-voice` folder that holds `server`, `static` and `.env.example`.
+- **Accounts:** register and log in with email + password. Passwords are stored as bcrypt hashes, and logins use JWT tokens.
+- **Tasks** with categories, priorities, due dates, repeats and subtasks
+- **Planner & calendar** (day, week, month) with events
+- **Reminders** with snooze and history
+- **Notes** with tags, pins and voice recordings
+- **Vision boards** with images you can drag around
+- **Flo, the AI assistant:** chat, or press **Call Flo** for a real-time voice call. You can interrupt Flo, and she can add tasks, events and reminders while you talk.
+- Everything is saved to **your account in the database**, so it's the same on every device.
 
-### Step 2. Open a terminal and go into `server`
-**Terminal › New Terminal**, then:
+---
+
+## 🏗️ How it works
+
+```
+ Browser (static/index.html)                FastAPI server (server/app)                 PostgreSQL
+ ───────────────────────────                ───────────────────────────                 ──────────
+ Login screen  ── POST /api/auth/login ──▶  check bcrypt hash, return JWT
+ App loads     ── GET  /api/data ───────▶   all of this user's data  ◀──── SELECT ───── users, tasks, events,
+ You add a task── PUT  /api/data/tasks ─▶   insert / update / delete ───── one ───────▶ reminders, notes, boards,
+                                            in ONE transaction          transaction     chat_messages, history,
+ Call Flo      ══ WebSocket /api/live ══▶   relay audio  ⇄  Google Gemini Live          settings, images
+```
+
+- Every request sends the token in a header: `Authorization: Bearer <JWT>`.
+- The server reads the **user id from the token**, never from the request body, and every query filters by it. So one user can never see another user's data.
+- The browser saves a list about half a second after your last change (debounced), so typing doesn't send a request per key.
+- The Gemini API key stays on the server. The browser never sees it.
+
+### Database tables
+
+| Table | What's in it | Typed columns (for SQL filters) |
+|---|---|---|
+| `users` | accounts | email (unique), name, password_hash |
+| `tasks` | to-dos | title, category, priority, due_date, done |
+| `events` | planner events | title, date, start_time, end_time, category |
+| `reminders` | reminders | title, date, time, status |
+| `notes` | notes | title, category, pinned |
+| `boards` | vision boards | name |
+| `chat_messages` | chat with Flo | role |
+| `history` | what happened to reminders | action |
+| `settings` | one row per user (name, theme, routine …) | — |
+| `images` | board pictures, voice-note audio | key |
+
+Each item table uses **(user_id, id)** as the primary key, plus a JSON column (`data`, JSONB in PostgreSQL) for flexible details such as subtasks or a card's position on a board.
+
+### API (try them all at **http://localhost:8000/docs**)
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/api/auth/register` | Create an account, returns a token |
+| POST | `/api/auth/login` | Log in, returns a token |
+| GET | `/api/auth/me` | Who am I |
+| DELETE | `/api/auth/me` | Delete my account and all my data |
+| GET | `/api/data` | Everything for the logged-in user |
+| PUT | `/api/data/{tasks\|events\|…}` | Save a whole list (used by the app) |
+| GET | `/api/tasks?done=false&category=Work` | List with filters |
+| POST / PATCH / DELETE | `/api/tasks`, `/api/tasks/{id}` | One item at a time (same for events, reminders, notes, boards, chat, history) |
+| GET / PUT | `/api/settings` | User settings |
+| PUT / GET / DELETE | `/api/images/{key}` | Pictures and recordings |
+| WebSocket | `/api/live?token=…` | Real-time voice call with Flo |
+| GET | `/api/health` | Server + database check |
+
+---
+
+## 🚀 Run it on your computer (Windows + VS Code)
+
+You need **Python 3.10+**. PostgreSQL is optional: without it the app uses a local SQLite file.
+
+### 1. Open the folder and a terminal
+In VS Code: **File › Open Folder…** › pick `dayflow`. Then **Terminal › New Terminal**.
+
+### 2. Create the Python environment (first time only)
 ```
 cd server
-```
-
-### Step 3. Create and turn on the environment (first time only)
-```
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-```
-You'll see `(.venv)` at the start of the line.
-
-If you get **"running scripts is disabled"**, run this once, type `Y`, then run the second line again:
-```
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-### Step 4. Install the packages
-```
 pip install -r requirements.txt
 ```
+If you see **"running scripts is disabled"**, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, type `Y`, and try again.
 
-### Step 5. Get your free Gemini API key
-1. Go to **https://aistudio.google.com/apikey** and sign in with your Google account.
-2. Click **Create API key**. If asked, pick or create a project.
-3. Copy the key. It usually starts with `AIza`.
+### 3. Create your `.env` file
+Copy `.env.example` (in the main `dayflow` folder) to a new file named exactly `.env`, then:
+- **Using PostgreSQL?** Create the database once: `psql -U postgres -c "CREATE DATABASE dayflow;"`, then put your password in `DATABASE_URL`.
+- **No PostgreSQL?** Delete the `DATABASE_URL` line. The app will use `server/dayflow.db` (SQLite).
+- Set `SECRET_KEY` to any long random text.
+- For voice calls, paste your free Gemini key from https://aistudio.google.com/apikey into `GEMINI_API_KEY`.
 
-You don't need to add billing. Without billing you stay on the free tier.
-
-### Step 6. Create your `.env` file
-1. In the VS Code sidebar, right-click `.env.example` › **Copy**, then right-click the top folder › **Paste**.
-2. Rename the copy to exactly `.env`.
-3. Paste your key after `GEMINI_API_KEY=`, with no spaces or quotes:
-   ```
-   GEMINI_API_KEY=AIza...your key...
-   ```
-4. Press **Ctrl+S** to save. Never share this file.
-
-### Step 7. Start the server
+### 4. Start the server
 ```
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 ```
-Wait for `Uvicorn running on http://127.0.0.1:8000`.
-
-### Step 8. Call Flo
-1. Open **http://localhost:8000** in **Chrome** or **Edge**.
-2. Click **Call Flo**. It's on the Home page, on the AI Assistant page, and as a phone icon in the chat bubble.
-3. Allow the microphone. Flo picks up and says hi.
-
-**During a call**
-- Talk over Flo at any time to interrupt her.
-- **Mute** (or press `M`) turns your mic off.
-- **End** (or `Esc`) hangs up.
-- **Captions** shows or hides the words on screen.
-- The conversation is saved in your chat afterwards.
-- Use **headphones** if Flo starts hearing herself through laptop speakers.
+Open **http://localhost:8000**, click **Create an account**, and you're in.
+API docs: **http://localhost:8000/docs**
 
 ### Next time
 ```
 cd server
 .venv\Scripts\Activate.ps1
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 ```
-To stop the server, press **Ctrl+C** in the terminal.
+
+### Run the tests
+```
+cd server
+python -m pytest -v
+```
+The tests use a temporary database, so your data is safe. They cover sign-up and login, wrong passwords, filters, saving lists, users not seeing each other's data, settings, images, and deleting an account.
 
 ---
 
-## Free tier: what to know
+## 🐳 Run with Docker (app + PostgreSQL together)
 
-- **Limits:** Google sets free-tier limits (requests per minute and per day). If you hit one, the call ends with a message from Gemini. Wait a bit and call again.
-- **Long calls:** a single live session lasts roughly 10–15 minutes. Flo tells you before it ends, and you can call again right away.
-- **Privacy:** on the free tier, Google may use what you send to improve its products. Avoid saying anything you'd want kept private during calls, or add billing later to move to the paid tier.
+Install Docker Desktop, then from the `dayflow` folder:
+```
+docker compose up --build
+```
+Open **http://localhost:8000**. The database is kept in a Docker volume between restarts.
 
----
+## ☁️ Put it online (Render, free)
 
-## Part 2: Put it online (optional)
+1. Push this folder to GitHub (`.env` is ignored automatically).
+2. On https://render.com: **New › Blueprint** › pick the repo. `render.yaml` creates the web service **and** a PostgreSQL database.
+3. In the web service's **Environment**, add `GEMINI_API_KEY` (and optionally `DAYFLOW_ACCESS_CODE`).
+4. Open the link Render gives you.
 
-Browsers only allow the microphone on **https** sites (or `localhost`). To use it on your phone, deploy to a host with https, such as **Render** (free plan available).
-
-1. Push the `dayflow-voice` folder to GitHub. `.env` stays out automatically.
-2. On Render: **New › Web Service** › pick the repo.
-3. Set **Root directory** to `server`.
-4. Set **Build command** to `pip install -r requirements.txt`.
-5. Set **Start command** to `uvicorn main:app --host 0.0.0.0 --port $PORT`.
-6. Under **Environment**, add `GEMINI_API_KEY` = your key.
-7. Also add `DAYFLOW_ACCESS_CODE` = a code only you know. Do this before you share the link, or others could use up your free limits.
+Browsers only allow the microphone on **https** sites (or `localhost`), and Render gives you https.
 
 ---
 
-## Settings (in `.env`)
+## 🗂️ Project structure
 
-| Setting | Default | What it does |
-|---|---|---|
-| `GEMINI_API_KEY` | (required) | Your free key from Google AI Studio. |
-| `DAYFLOW_ACCESS_CODE` | empty | When set, the app asks for this code before a call. |
-| `GEMINI_LIVE_MODEL` | `gemini-3.8-live` | The voice model. `gemini-3.1-flash-live-preview` is an alternative. |
-| `GEMINI_VOICE` | `Aoede` | Flo's voice. Other voices include `Kore`, `Leda`, `Zephyr`, `Puck` and `Charon`. |
-| `DAYFLOW_CALLS_PER_10_MIN` | `10` | A safety limit on how many calls can start in 10 minutes. |
+```
+dayflow/
+├── static/
+│   └── index.html            # the whole frontend (HTML, CSS, JS): screens, login, voice call UI
+├── server/
+│   ├── app/
+│   │   ├── main.py           # creates the FastAPI app, serves index.html, /api/health
+│   │   ├── config.py         # settings from .env
+│   │   ├── database.py       # SQLAlchemy engine + session per request
+│   │   ├── models.py         # database tables
+│   │   ├── security.py       # bcrypt password hashing, JWT create/read
+│   │   ├── deps.py           # get_current_user (reads the token)
+│   │   ├── schemas.py        # Pydantic request/response models
+│   │   ├── collections_def.py# which lists exist + their typed columns
+│   │   └── routers/
+│   │       ├── auth.py       # register, login, me, delete account
+│   │       ├── data.py       # tasks/events/... (REST + sync)
+│   │       ├── images.py     # pictures and recordings
+│   │       └── voice.py      # WebSocket relay to Gemini Live
+│   ├── tests/test_api.py     # pytest
+│   └── requirements.txt
+├── Dockerfile, docker-compose.yml, render.yaml
+└── .env.example
+```
 
-After changing `.env`, restart the server: **Ctrl+C**, then `uvicorn main:app --reload`.
+> **Without the server:** opening `static/index.html` directly still works. DayFlow then saves to the browser (localStorage) with no login, the way it did before the backend existed.
 
-## If something goes wrong
-
-| What you see | What to do |
-|---|---|
-| No **Call Flo** button | Open the app through the server (`http://localhost:8000`), not by double-clicking the HTML file. Check `GEMINI_API_KEY` is saved in `.env`, then restart the server. |
-| "Microphone access is blocked" | Click the lock icon in the address bar › allow Microphone › call again. |
-| "Gemini refused the call…" or "Gemini ended the call: …" | Usually the key is wrong, or the free limit was reached. Check the key, wait a minute, and try again. If it mentions the model, set `GEMINI_LIVE_MODEL=gemini-3.1-flash-live-preview`. |
-| "The server couldn't reach Google" | Check your internet connection. |
+## Voice call notes (free Gemini tier)
+- A single live session lasts about 10–15 minutes; call again to continue.
+- Free-tier limits apply. If you hit one, wait a bit.
+- On the free tier Google may use what you send to improve its products, so avoid private details during calls.

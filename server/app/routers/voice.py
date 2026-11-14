@@ -1,51 +1,26 @@
-"""DayFlow server (free voice calls with Gemini Live).
+"""Real-time voice calls with Flo (Gemini Live).
 
-- Serves the DayFlow app at http://localhost:8000
-- Relays a live voice call between your browser and Google's Gemini Live API.
-  Your Gemini API key stays here on the server; the browser never sees it.
-
-Run (from inside the server folder):  uvicorn main:app --reload
+Browser  <-WebSocket->  this server  <-WebSocket->  Google Gemini Live
+The Gemini API key stays on the server; the browser never sees it.
+The browser must send its login token (?token=...) so only logged-in users can call.
 """
 import asyncio
 import hmac
 import json
-import os
 import time
 from collections import defaultdict, deque
-from pathlib import Path
 
 import websockets
-from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-BASE = Path(__file__).resolve().parent
-# Look for the settings file next to .env.example (or in this folder). Windows sometimes
-# saves it as ".env.txt" when file extensions are hidden, so accept that too.
-ENV_FILES = [BASE.parent / ".env", BASE / ".env", BASE.parent / ".env.txt", BASE / ".env.txt"]
-for f in ENV_FILES:
-    if f.is_file():
-        load_dotenv(f)
+from ..config import (CALLS_PER_10_MIN, DAYFLOW_ACCESS_CODE as ACCESS_CODE, GEMINI_API_KEY,
+                      GEMINI_LIVE_MODEL as MODEL, GEMINI_LIVE_URL as LIVE_URL, GEMINI_VOICE as VOICE)
+from ..database import SessionLocal
+from ..models import User
+from ..security import read_token
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
-MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.8-live").strip()
-VOICE = os.getenv("GEMINI_VOICE", "Aoede").strip()
-ACCESS_CODE = os.getenv("DAYFLOW_ACCESS_CODE", "").strip()
-CALLS_PER_10_MIN = int(os.getenv("DAYFLOW_CALLS_PER_10_MIN", "10"))
-STATIC = BASE.parent / "static"
-LIVE_URL = os.getenv("GEMINI_LIVE_URL", "wss://generativelanguage.googleapis.com/ws/"
-                     "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
+router = APIRouter(tags=["Voice"])
 
-app = FastAPI(title="DayFlow", docs_url=None, redoc_url=None)
-
-found = [str(f) for f in ENV_FILES if f.is_file()]
-if GEMINI_API_KEY:
-    print(f"DayFlow: Gemini key: found (from {found[0] if found else 'environment'}). Voice calls are ready. Model: {MODEL}")
-else:
-    print("DayFlow: Gemini key: NOT found. Voice calls are off.")
-    print(f"  Put a line GEMINI_API_KEY=your-key in {BASE.parent / '.env'} and restart the server.")
-    if found:
-        print(f"  (I found {', '.join(found)}, but it has no GEMINI_API_KEY line.)")
 _recent_calls: dict[str, deque] = defaultdict(deque)
 
 
@@ -61,21 +36,26 @@ def _allowed(ip: str) -> bool:
     return True
 
 
+def _logged_in(token: str) -> bool:
+    uid = read_token(token) if token else None
+    if not uid:
+        return False
+    with SessionLocal() as db:
+        return db.get(User, uid) is not None
+
+
 async def _refuse(ws: WebSocket, message: str) -> None:
     await ws.send_text(json.dumps({"error": message}))
     await ws.close(code=1008)
 
 
-@app.get("/api/health")
-def health():
-    return {"voice": bool(GEMINI_API_KEY), "provider": "gemini", "model": MODEL, "protected": bool(ACCESS_CODE)}
-
-
-@app.websocket("/api/live")
+@router.websocket("/api/live")
 async def live(ws: WebSocket):
     await ws.accept()
     if not GEMINI_API_KEY:
         return await _refuse(ws, "Voice calls are not set up yet: add GEMINI_API_KEY to the .env file and restart the server.")
+    if not _logged_in(ws.query_params.get("token", "")):
+        return await _refuse(ws, "Please log in again to call Flo.")
     if ACCESS_CODE and not hmac.compare_digest(ws.query_params.get("code", "").encode(), ACCESS_CODE.encode()):
         return await _refuse(ws, "Wrong access code.")
     if not _allowed(ws.client.host if ws.client else "unknown"):
@@ -133,8 +113,3 @@ async def live(ws: WebSocket):
         await ws.close()
     except Exception:
         pass
-
-
-@app.get("/")
-def index():
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})

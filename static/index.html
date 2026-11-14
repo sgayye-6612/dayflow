@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!--DAYFLOW_SERVER-->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DayFlow</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -748,6 +749,22 @@ body.in-call{overflow:hidden}
 .call[data-state="error"] .call-stage{opacity:.3;filter:saturate(.6)}
 .call[data-state="error"] .call-time{visibility:hidden}
 
+.auth-gate{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:20px;background:var(--paper);
+  background-image:radial-gradient(var(--dots) 1.5px,transparent 1.5px);background-size:22px 22px;overflow:auto}
+.auth-gate[hidden]{display:none}
+body.auth-open{overflow:hidden}
+.auth-box{width:min(420px,100%);background:var(--card);border:1px solid var(--line);border-radius:28px;padding:34px 30px 26px;box-shadow:0 24px 60px var(--shadow)}
+.auth-box .eyebrow{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--deep);margin:0}
+.auth-box h2{font-family:var(--f-display);font-size:34px;line-height:1.1;margin:6px 0 8px;color:var(--ink)}
+.auth-box h2 em{color:var(--hot);font-style:italic}
+.auth-box form{display:grid;gap:14px;margin-top:20px}
+.auth-box .btn{width:100%;justify-content:center;margin-top:4px}
+.auth-err{color:var(--danger);font-size:14px;min-height:1px;margin:0}
+.auth-note{background:var(--straw-soft);color:var(--ink);border-radius:14px;padding:10px 14px;font-size:14px;margin:12px 0 0}
+.auth-switch{text-align:center;font-size:14px;color:var(--muted);margin:18px 0 0}
+.auth-switch .link{background:none;border:0;padding:0;color:var(--deep);font:inherit;font-weight:700;cursor:pointer;text-decoration:underline}
+.acct-row{display:flex;align-items:center;gap:12px;margin-top:6px}
+.acct-av{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--straw-soft);color:var(--hot);font-size:18px}
 </style>
 
 </head>
@@ -1027,6 +1044,9 @@ body.in-call{overflow:hidden}
         <article class="card"><h3>Assistant</h3><p class="sub">How Flo answers you.</p>
           <div class="fgroup"><div class="ai-status" id="aiStatus2"><i></i><span></span></div>
           <label class="check" id="ttsRow" hidden><input type="checkbox" id="setTts"> Read Flo's replies aloud</label></div></article>
+        <article class="card" id="acctCard" hidden><h3>Account</h3><p class="sub">Logged in. Everything you add is saved to this account.</p>
+          <div class="acct-row"><span class="acct-av" aria-hidden="true">♥</span><div><b id="acctName"></b><div class="sub" id="acctEmail"></div></div></div>
+          <div style="margin-top:14px"><button class="btn btn-line btn-sm" type="button" id="logoutBtn">Log out</button></div></article>
         <article class="card"><h3>Your data</h3><p class="sub" id="dataSub">Back up, restore or clear everything.</p>
           <div class="status-line" id="dataStatus"><i></i><span></span></div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
@@ -1038,6 +1058,24 @@ body.in-call{overflow:hidden}
     </div>
   </section>
 </main>
+
+<!-- LOGIN / REGISTER (only used when DayFlow runs on its server) -->
+<div class="auth-gate" id="authGate" hidden>
+  <div class="auth-box" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <p class="eyebrow">DayFlow</p>
+    <h2 id="authTitle">Welcome <em>back</em></h2>
+    <p class="sub" id="authLead">Log in to see your day.</p>
+    <p class="auth-note" id="authNote" hidden></p>
+    <form id="authForm" novalidate>
+      <div id="authNameRow" hidden><label class="lbl" for="authName">Your name</label><input class="field" id="authName" autocomplete="given-name" maxlength="100" placeholder="Sahithi"></div>
+      <div><label class="lbl" for="authEmail">Email</label><input class="field" id="authEmail" type="email" autocomplete="email" placeholder="you@example.com"></div>
+      <div><label class="lbl" for="authPass">Password</label><input class="field" id="authPass" type="password" autocomplete="current-password" placeholder="At least 8 characters"></div>
+      <p class="auth-err" id="authErr" role="alert"></p>
+      <button class="btn btn-hot" type="submit" id="authSubmit">Log in</button>
+    </form>
+    <p class="auth-switch" id="authSwitch"></p>
+  </div>
+</div>
 
 <div class="veil" aria-hidden="true"><span>DayFlow</span></div>
 <footer><div class="wrap"><span>DayFlow · Your day. Your goals. Your little world.</span><span id="today"></span></div></footer>
@@ -1172,31 +1210,34 @@ var DEFAULT_ROUTINE=['Wake up','Freshen up','Walk with Scooby','Breakfast','Appl
 /* ---------------- Store ---------------- */
 var DEFAULTS={settings:{},tasks:[],events:[],reminders:[],history:[],notes:[],boards:[],chat:[]};
 function clone(v){return JSON.parse(JSON.stringify(v))}
-var Store={app:!!(window.claude&&typeof window.claude.use==='function'),fallback:false,d:{},mode:'local',db:null,uid:null,pend:{},busy:{},dirty:{},loaded:{},imgs:{},subs:[],connecting:false,readonly:false,
-  init:function(){for(var k in DEFAULTS){var v=null;if(!this.app){try{v=JSON.parse(localStorage.getItem('df-'+k))}catch(e){}}this.d[k]=v!=null?v:clone(DEFAULTS[k])}},
-  local:function(k){if(this.app&&!this.fallback)return;try{localStorage.setItem('df-'+k,JSON.stringify(this.d[k]))}catch(e){toast('This browser is out of storage space. Download a backup from Settings.')}},
+var Store={app:!!(window.claude&&typeof window.claude.use==='function'),api:!!window.DAYFLOW_API,fallback:false,d:{},mode:'local',db:null,uid:null,pend:{},busy:{},dirty:{},loaded:{},imgs:{},subs:[],connecting:false,readonly:false,
+  init:function(){if(this.api)this.connecting=true;for(var k in DEFAULTS){var v=null;if(!this.app&&!this.api){try{v=JSON.parse(localStorage.getItem('df-'+k))}catch(e){}}this.d[k]=v!=null?v:clone(DEFAULTS[k])}},
+  local:function(k){if((this.app&&!this.fallback)||this.api)return;try{localStorage.setItem('df-'+k,JSON.stringify(this.d[k]))}catch(e){toast('This browser is out of storage space. Download a backup from Settings.')}},
   get:function(k){return this.d[k]},
   set:function(k,v){if(this.readonly){toast('This DayFlow is view-only for you, so changes are not saved.');}
     this.d[k]=v;
-    if(this.mode==='cloud'){this.queue(k)}else{this.local(k)}
+    if(this.mode==='cloud'||this.mode==='api'){this.queue(k)}else{this.local(k)}
     this.emit(k)},
   save:function(k){this.set(k,this.d[k])},
   queue:function(k){var s=this;clearTimeout(this.pend[k]);this.pend[k]=setTimeout(function(){s.pend[k]=null;s.push(k)},500)},
   push:function(k){var s=this;if(this.busy[k]){this.dirty[k]=true;return}this.busy[k]=true;
+    if(this.mode==='api'){Api.req('PUT','api/data/'+k,this.d[k]).catch(function(e){s.fail(e)}).then(function(){s.busy[k]=false;if(s.dirty[k]){s.dirty[k]=false;s.push(k)}});return}
     this.db.doc(this.path(k)).set({v:this.d[k],at:Date.now()}).catch(function(e){s.fail(e)}).then(function(){s.busy[k]=false;if(s.dirty[k]){s.dirty[k]=false;s.push(k)}})},
-  fail:function(e){var c=e&&e.code;if(c==='invalid_argument'){this.readonly=true;toast('You can view this DayFlow but changes are not saved for you.')}else if(c==='quota_exceeded'||c==='resource_exhausted'){toast('Saving is paused for a moment. Your latest change will be retried.')}else{toast('Could not save just now. Check your connection.')}},
+  fail:function(e){var c=e&&e.code;if(c==='auth')return;if(c==='invalid_argument'){this.readonly=true;toast('You can view this DayFlow but changes are not saved for you.')}else if(c==='quota_exceeded'||c==='resource_exhausted'){toast('Saving is paused for a moment. Your latest change will be retried.')}else{toast('Could not save just now. Check your connection.')}},
   path:function(k){return 'data/users/'+this.uid+'/'+k},
   on:function(fn){this.subs.push(fn)},
   emit:function(k){this.subs.forEach(function(f){f(k)})},
   putImg:function(key,src){this.imgs[key]=src;
+    if(this.api){return Api.req('PUT','api/images/'+encodeURIComponent(key),{src:src}).catch(function(e){Store.fail(e)})}
     if(this.app&&!this.fallback&&this.mode!=='cloud')return Promise.resolve();
     if(this.mode==='cloud'){return this.db.doc(this.path('img-'+key)).set({src:src}).catch(function(e){Store.fail(e)})}
     try{localStorage.setItem('df-img-'+key,src)}catch(e){toast('This browser is out of storage space for images.')}return Promise.resolve()},
   getImg:function(key){var s=this;if(!key)return Promise.resolve(null);if(this.imgs[key])return Promise.resolve(this.imgs[key]);
+    if(this.api){return Api.req('GET','api/images/'+encodeURIComponent(key)).then(function(j){var v=j&&j.src||null;if(v)s.imgs[key]=v;return v}).catch(function(){return null})}
     if(this.mode==='cloud'){return this.db.doc(this.path('img-'+key)).get().then(function(sn){var v=sn.exists?sn.data().src:null;if(v)s.imgs[key]=v;return v}).catch(function(){return null})}
     var v=null;try{v=localStorage.getItem('df-img-'+key)}catch(e){}if(v)this.imgs[key]=v;return Promise.resolve(v)},
-  delImg:function(key){if(!key)return;delete this.imgs[key];if(this.mode==='cloud'){this.db.doc(this.path('img-'+key)).delete().catch(function(){})}else{try{localStorage.removeItem('df-img-'+key)}catch(e){}}},
-  connect:function(){var s=this;if(!(window.claude&&typeof window.claude.use==='function'))return;
+  delImg:function(key){if(!key)return;delete this.imgs[key];if(this.api){Api.req('DELETE','api/images/'+encodeURIComponent(key)).catch(function(){});return}if(this.mode==='cloud'){this.db.doc(this.path('img-'+key)).delete().catch(function(){})}else{try{localStorage.removeItem('df-img-'+key)}catch(e){}}},
+  connect:function(){var s=this;if(this.api){Api.boot();return}if(!(window.claude&&typeof window.claude.use==='function'))return;
     s.connecting=true;s.emit('*');
     var finished=false;function done(cloud){if(finished)return;finished=true;clearTimeout(timer);s.connecting=false;if(cloud){s.mode='cloud'}else{s.fallback=true;for(var k in DEFAULTS){var v=null;try{v=JSON.parse(localStorage.getItem('df-'+k))}catch(e){}if(v!=null)s.d[k]=v;else s.local(k)}}s.emit('*');updateSync()}
     var timer=setTimeout(function(){done(false)},10000);
@@ -1218,6 +1259,53 @@ var Store={app:!!(window.claude&&typeof window.claude.use==='function'),fallback
     }).catch(function(){done(false)});
   }
 };
+/* ---------------- Server API (accounts + database) ----------------
+   Used when DayFlow is opened through its FastAPI server. The login token (JWT) is kept in
+   this browser and sent as "Authorization: Bearer <token>" with every request. */
+var Api={token:null,user:null,
+  load:function(){try{this.token=localStorage.getItem('df-token');this.user=JSON.parse(localStorage.getItem('df-user')||'null')}catch(e){}},
+  keep:function(t,u){this.token=t;this.user=u;try{localStorage.setItem('df-token',t);localStorage.setItem('df-user',JSON.stringify(u))}catch(e){}},
+  forget:function(){this.token=null;this.user=null;try{localStorage.removeItem('df-token');localStorage.removeItem('df-user')}catch(e){}},
+  req:function(method,path,body){var h={'Accept':'application/json'};if(body!==undefined)h['Content-Type']='application/json';if(this.token)h['Authorization']='Bearer '+this.token;
+    return fetch(path,{method:method,headers:h,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store'}).then(function(r){
+      if(r.status===401&&Api.token){Api.expired();var e=new Error('auth');e.code='auth';throw e}
+      if(r.status===204)return null;
+      return r.json().catch(function(){return null}).then(function(j){if(!r.ok){var e=new Error(Api.msg(j)||('Error '+r.status));e.status=r.status;throw e}return j})})},
+  msg:function(j){if(!j)return '';var d=j.detail;if(typeof d==='string')return d;if(Array.isArray(d)&&d[0]){var f=(d[0].loc||[]).slice(-1)[0];
+    if(f==='email')return 'Enter a valid email address.';if(f==='password')return 'Password must be at least 8 characters.';if(f==='name')return 'Enter your name.';return d[0].msg||''}return ''},
+  boot:function(){Store.connecting=true;Store.emit('*');this.load();if(!this.token){Auth.show();return}
+    this.req('GET','api/data').then(function(d){Api.fill(d)}).catch(function(e){if(e&&e.code==='auth')return;Store.connecting=false;Store.emit('*');toast('Could not reach the DayFlow server. Check that it is running.','Retry',function(){Api.boot()})})},
+  fill:function(d){var hadLocal=false,empty=true,local={};
+    for(var k in DEFAULTS){var v=d[k];if(k==='settings'){if(v&&Object.keys(v).some(function(x){return x!=='name'}))empty=false}else if(v&&v.length)empty=false}
+    // First login on a browser that already has DayFlow data saved locally: move it into the account.
+    for(var k2 in DEFAULTS){var lv=null;try{lv=JSON.parse(localStorage.getItem('df-'+k2))}catch(e){}if(lv&&(k2==='settings'?Object.keys(lv).length:lv.length)){hadLocal=true;local[k2]=lv}}
+    for(var k3 in DEFAULTS){Store.d[k3]=d[k3]!=null?d[k3]:clone(DEFAULTS[k3])}
+    Store.mode='api';Store.connecting=false;
+    if(empty&&hadLocal){for(var k4 in local){if(k4==='settings')local[k4]=Object.assign({},Store.d.settings,local[k4]);Store.d[k4]=local[k4];Store.queue(k4);try{localStorage.removeItem('df-'+k4)}catch(e){}}
+      toast('Moved the DayFlow data saved in this browser into your account.')}
+    Store.emit('*');updateSync();renderAccount()},
+  expired:function(){this.forget();Store.mode='local';Store.connecting=true;Store.emit('*');Auth.show('Your session ended. Please log in again.')},
+  logout:function(){this.forget();Store.mode='local';for(var k in DEFAULTS)Store.d[k]=clone(DEFAULTS[k]);Store.imgs={};Store.connecting=true;Store.emit('*');Auth.show('You are logged out.')}
+};
+var Auth={mode:'login',
+  show:function(note){var el=$('#authGate');el.hidden=false;document.body.classList.add('auth-open');$('#authNote').textContent=note||'';$('#authNote').hidden=!note;this.set(this.mode);
+    setTimeout(function(){var f=$('#authGate input:not([hidden])');if(f)f.focus()},80)},
+  hide:function(){$('#authGate').hidden=true;document.body.classList.remove('auth-open')},
+  set:function(m){this.mode=m;var reg=m==='register';$('#authTitle').innerHTML=reg?'Create your <em>DayFlow</em>':'Welcome <em>back</em>';
+    $('#authLead').textContent=reg?'Your tasks, planner, notes and Flo, saved safely to your own account.':'Log in to see your day.';
+    $('#authNameRow').hidden=!reg;$('#authSubmit').textContent=reg?'Create account':'Log in';$('#authPass').autocomplete=reg?'new-password':'current-password';
+    $('#authSwitch').innerHTML=reg?'Already have an account? <button type="button" class="link" data-auth="login">Log in</button>':'New to DayFlow? <button type="button" class="link" data-auth="register">Create an account</button>';
+    $('#authErr').textContent=''},
+  submit:function(e){e.preventDefault();var reg=Auth.mode==='register',btn=$('#authSubmit'),err=$('#authErr');
+    var body={email:$('#authEmail').value.trim(),password:$('#authPass').value};if(reg)body.name=$('#authName').value.trim();
+    if(reg&&!body.name){err.textContent='Enter your name.';return}if(!body.email){err.textContent='Enter your email.';return}if(!body.password){err.textContent='Enter your password.';return}
+    btn.disabled=true;err.textContent='';
+    Api.req('POST',reg?'api/auth/register':'api/auth/login',body).then(function(j){Api.keep(j.access_token,j.user);$('#authPass').value='';Auth.hide();
+      return Api.req('GET','api/data').then(function(d){Api.fill(d);toast(reg?'Welcome to DayFlow, '+j.user.name.split(' ')[0]+'!':'Welcome back, '+j.user.name.split(' ')[0]+'!')})})
+    .catch(function(x){err.textContent=x&&x.message?x.message:'Something went wrong. Try again.'}).then(function(){btn.disabled=false})},
+  bind:function(){$('#authForm').addEventListener('submit',Auth.submit);$('#authGate').addEventListener('click',function(e){var b=e.target.closest('[data-auth]');if(b)Auth.set(b.dataset.auth)})}
+};
+function renderAccount(){var c=$('#acctCard');if(!c)return;c.hidden=!Store.api;if(!Store.api||!Api.user)return;$('#acctName').textContent=Api.user.name;$('#acctEmail').textContent=Api.user.email}
 function S(){var st=Store.get('settings')||{};return {name:st.name||'',theme:st.theme||'system',cats:st.cats||[],tts:st.tts!==false,routine:Array.isArray(st.routine)?st.routine:DEFAULT_ROUTINE,rdone:st.rdone&&st.rdone.date===today()?st.rdone.ids:[],ralerts:st.ralerts!==false,qi:st.qi||0}}
 function setS(patch){var st=Object.assign({},Store.get('settings')||{},patch);Store.set('settings',st)}
 function cats(){return BASE_CATS.concat(S().cats)}
@@ -1859,7 +1947,7 @@ function startCall(){if(Call.on)return;if(!Call.served){toast('Voice conversatio
     else if(name==='NotFoundError')callFail('No microphone was found. Plug one in and call again.');
     else callFail('The call couldn’t start. Check the server and try again.')})}
 function callConnect(){if(!Call.on||Call.ended)return;
-  var url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/live'+(Call.code?'?code='+encodeURIComponent(Call.code):'');
+  var url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/live?token='+encodeURIComponent(Api.token||'')+(Call.code?'&code='+encodeURIComponent(Call.code):'');
   var ws=new WebSocket(url);Call.ws=ws;Call.live=false;
   ws.onopen=function(){ws.send(JSON.stringify({setup:{generationConfig:{responseModalities:['AUDIO']},systemInstruction:{parts:[{text:callInstructions()}]},
     tools:[{functionDeclarations:aiTools().map(function(t){return {name:t.name,description:t.description,parameters:gSchema(t.inputSchema)}})}],
@@ -1951,7 +2039,7 @@ function renderSettings(){var s=S();var n=$('#setName');if(document.activeElemen
   var intro=true;try{intro=localStorage.getItem('df-intro')!=='0'}catch(e){}$('#setIntro').checked=intro;
   $('#catList').innerHTML=BASE_CATS.map(function(c){return catChip(c)}).join('')+s.cats.map(function(c){return '<span class="chip ghost">'+esc(c)+'<button type="button" data-rmcat="'+esc(c)+'" aria-label="Remove '+esc(c)+'">×</button></span>'}).join('');
   updateNotifUI();updateAiStatus();updateSync();Voice.refresh()}
-function updateSync(){var cloud=Store.mode==='cloud';var pill=$('#syncPill');pill.className='sync-pill'+(cloud?' cloud':'');$('span',pill).textContent=Store.connecting?'Connecting…':cloud?'Saved to your account':Store.app&&!Store.fallback?'Not saved yet':'Saved in this browser';
+function updateSync(){if(Store.api){var pl=$('#syncPill');pl.className='sync-pill'+(Store.mode==='api'?' cloud':'');$('span',pl).textContent=Store.connecting?'Connecting…':Store.mode==='api'?'Saved to your account':'Not logged in';var dst=$('#dataStatus');dst.className='status-line';$('span',dst).textContent='Saved in the DayFlow database under your account. Log in on any device to see it.';renderAccount();return}var cloud=Store.mode==='cloud';var pill=$('#syncPill');pill.className='sync-pill'+(cloud?' cloud':'');$('span',pill).textContent=Store.connecting?'Connecting…':cloud?'Saved to your account':Store.app&&!Store.fallback?'Not saved yet':'Saved in this browser';
   var ds=$('#dataStatus');ds.className='status-line'+(cloud?'':' local');$('span',ds).textContent=cloud?'Saved privately to your Claude account. Only you can see it, on any device.':'Saved in this browser only. Download a backup now and then to keep it safe.'}
 function exportData(){var data={app:'DayFlow',version:1,exported:new Date().toISOString(),data:{}};Object.keys(DEFAULTS).forEach(function(k){data.data[k]=Store.get(k)});
   var keys=[];notes().forEach(function(n){if(n.audio)keys.push(n.audio)});boards().forEach(function(b){(b.items||[]).forEach(function(i){if(i.img)keys.push(i.img)})});
@@ -2068,7 +2156,7 @@ function bind(){
   var nt;$('#setName').oninput=function(){var v=this.value;clearTimeout(nt);nt=setTimeout(function(){setS({name:v.trim().slice(0,40)})},400)};
   $('#setIntro').onchange=function(){try{localStorage.setItem('df-intro',this.checked?'1':'0')}catch(e){}};
   $('#catForm').onsubmit=function(e){e.preventDefault();var v=$('#catInput').value.trim().slice(0,24);if(!v)return;if(cats().map(function(c){return c.toLowerCase()}).indexOf(v.toLowerCase())>-1){toast('That category already exists.');return}setS({cats:S().cats.concat([v])});$('#catInput').value=''};
-  $('#exportBtn').onclick=exportData;$('#importFile').onchange=function(){var f=this.files&&this.files[0];this.value='';if(f)importData(f)};$('#wipeBtn').onclick=wipe;
+  $('#exportBtn').onclick=exportData;$('#importFile').onchange=function(){var f=this.files&&this.files[0];this.value='';if(f)importData(f)};$('#wipeBtn').onclick=wipe;$('#logoutBtn').onclick=function(){confirmDlg('Log out?','Your data stays saved in your account.','Log out',function(){Api.logout()})};
   var fab=$('#fab');fab.onclick=function(){openMini($('#chat').hidden)};$('#closechat').onclick=function(){openMini(false);fab.focus()};
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!$('#chat').hidden&&!root.classList.contains('intro-on')&&!$('#dlg').open){openMini(false);fab.focus()}});
   $('#dlg').addEventListener('close',function(){if(Dlg.onCleanup){var c=Dlg.onCleanup;Dlg.onCleanup=null;c()}$$('[data-mic]',$('#dlg')).forEach(function(b){if(b._stop)b._stop()})});
@@ -2080,10 +2168,10 @@ function stepCal(d){var a=cal.at;if(cal.mode==='month')cal.at=new Date(a.getFull
 /* ---------------- Boot ---------------- */
 Store.init();applyTheme();initDlg();bind();initMotion();initVisionDrag();Voice.init();callBind();callInit();
 var ticked=false;function firstTick(){if(ticked)return;ticked=true;try{migrateDaily()}catch(e){}try{migrateBirthdays()}catch(e){}tick(true);routineTick()}
-Store.on(function(k){if(k==='settings')applyTheme();if(k==='*'&&!Store.connecting&&Store.app)firstTick();scheduleRender()});
+Store.on(function(k){if(k==='settings')applyTheme();if(k==='*'&&!Store.connecting&&(Store.app||Store.mode==='api'))firstTick();scheduleRender()});
 show(viewFromHash(),true);
-initAI();Store.connect();
-setTimeout(firstTick,Store.app?11000:800);setInterval(function(){if(ticked){tick(false);routineTick()}},15000);
+initAI();Auth.bind();renderAccount();Store.connect();
+if(!Store.api)setTimeout(firstTick,Store.app?11000:800);setInterval(function(){if(ticked){tick(false);routineTick()}},15000);
 setInterval(function(){if(current==='home'||current==='planner'||current==='reminders')scheduleRender()},60000);
 })();
 
